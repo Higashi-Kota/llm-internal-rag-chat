@@ -1,0 +1,13 @@
+{
+  "name": "@internal/shared-config",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./biome": "./biome/biome.v2.json",
+    "./tsconfig/base": "./tsconfig/base.json",
+    "./tsconfig/frontend/base": "./tsconfig/frontend/base.json",
+    "./tsconfig/frontend/app": "./tsconfig/frontend/app.json",
+    "./tsconfig/frontend/lib": "./tsconfig/frontend/lib.json"
+  }
+}
