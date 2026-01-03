@@ -27,7 +27,7 @@ RAG用のドキュメントを `backend/data/docs/` に配置してください�
 
 ```bash
 # バックエンド依存関係インストール
-cd backend && uv sync
+cd backend && uv sync --extra dev
 
 # 環境変数ファイルをコピー
 cp .env.example .env

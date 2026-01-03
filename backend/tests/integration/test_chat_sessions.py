@@ -137,9 +137,7 @@ class TestChatPersistence:
     """Tests for chat message persistence."""
 
     @pytest.mark.asyncio
-    async def test_chat_with_session_persists_messages(
-        self, async_client: AsyncClient
-    ):
+    async def test_chat_with_session_persists_messages(self, async_client: AsyncClient):
         """Test that chat with session_id persists messages."""
         # Create a session
         create_response = await async_client.post(
