@@ -1,0 +1,26 @@
+{
+  "name": "llm-internal-rag-chat-workspace",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.13.1",
+  "scripts": {
+    "dev": "pnpm dev:frontend",
+    "dev:frontend": "pnpm --filter @rag-chat/client-app dev",
+    "dev:backend": "cd backend && uv run fastapi dev src/mermaid_llm/main.py --port 8000",
+    "build": "pnpm --filter @rag-chat/client-app build",
+    "test": "pnpm test:backend",
+    "test:backend": "cd backend && uv run pytest",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "biome check .",
+    "lint:fix": "biome check . --fix --unsafe",
+    "format": "biome format . --write",
+    "e2e": "pnpm --filter @rag-chat/client-app e2e",
+    "e2e:headed": "pnpm --filter @rag-chat/client-app e2e:headed"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.0.0",
+    "@internal/shared-config": "workspace:*",
+    "typescript": "^5.8.3"
+  }
+}

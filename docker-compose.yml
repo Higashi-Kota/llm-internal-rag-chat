@@ -1,0 +1,25 @@
+# Development database for RAG Chat
+# PostgreSQL with automatic migration and seed on first start
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: rag-chat-postgres
+    environment:
+      POSTGRES_USER: rag_chat
+      POSTGRES_PASSWORD: dev_password
+      POSTGRES_DB: rag_chat
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/database/init/01-migrations.sql:/docker-entrypoint-initdb.d/01-migrations.sql:ro
+      - ./backend/database/init/02-seed.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rag_chat -d rag_chat"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

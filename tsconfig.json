@@ -1,0 +1,8 @@
+{
+  "extends": "@internal/shared-config/tsconfig/base",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {}
+  },
+  "exclude": ["node_modules", "dist", "backend"]
+}

@@ -1,0 +1,212 @@
+# Deploy
+name: Deploy
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  PYTHON_VERSION: "3.11"
+  UV_VERSION: "0.5.14"
+
+jobs:
+  build-backend:
+    name: Build & Push Backend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository }}-backend
+          tags: |
+            type=raw,value=latest
+            type=sha
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.backend
+          target: production
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
+
+  build-frontend:
+    name: Build & Push Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository }}-frontend
+          tags: |
+            type=raw,value=latest
+            type=sha
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.frontend
+          target: production
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
+          build-args: |
+            VITE_API_URL=${{ vars.VITE_API_URL || '' }}
+
+  migrate-database:
+    name: Run Database Migrations
+    runs-on: ubuntu-latest
+    needs: build-backend
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Check if DATABASE_URL is configured
+        id: check-db
+        run: |
+          if [ -n "$DATABASE_URL" ]; then
+            echo "configured=true" >> $GITHUB_OUTPUT
+          else
+            echo "configured=false" >> $GITHUB_OUTPUT
+            echo "DATABASE_URL not configured, skipping migrations"
+          fi
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        working-directory: .
+
+      - name: Checkout
+        if: steps.check-db.outputs.configured == 'true'
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        if: steps.check-db.outputs.configured == 'true'
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+
+      - name: Setup Python
+        if: steps.check-db.outputs.configured == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        if: steps.check-db.outputs.configured == 'true'
+        run: uv sync
+
+      - name: Run Alembic migrations
+        if: steps.check-db.outputs.configured == 'true'
+        run: uv run alembic upgrade head
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+  deploy-backend:
+    name: Deploy Backend to Render
+    runs-on: ubuntu-latest
+    needs: [build-backend, migrate-database]
+    if: ${{ always() && needs.build-backend.result == 'success' }}
+    steps:
+      - name: Trigger Render deploy
+        run: |
+          if [ -n "$DEPLOY_HOOK" ]; then
+            curl -s "$DEPLOY_HOOK"
+            echo "Deploy triggered"
+          else
+            echo "RENDER_BACKEND_DEPLOY_HOOK not set, skipping"
+          fi
+        env:
+          DEPLOY_HOOK: ${{ secrets.RENDER_BACKEND_DEPLOY_HOOK }}
+
+  deploy-frontend:
+    name: Deploy Frontend to Render
+    runs-on: ubuntu-latest
+    needs: build-frontend
+    steps:
+      - name: Trigger Render deploy
+        run: |
+          if [ -n "$DEPLOY_HOOK" ]; then
+            curl -s "$DEPLOY_HOOK"
+            echo "Deploy triggered"
+          else
+            echo "RENDER_FRONTEND_DEPLOY_HOOK not set, skipping"
+          fi
+        env:
+          DEPLOY_HOOK: ${{ secrets.RENDER_FRONTEND_DEPLOY_HOOK }}
+
+  summary:
+    name: Deployment Summary
+    runs-on: ubuntu-latest
+    needs: [deploy-backend, deploy-frontend]
+    if: always()
+    steps:
+      - name: Summary
+        run: |
+          echo "## Deployment Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Images pushed to GHCR:" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ env.REGISTRY }}/${{ github.repository }}-backend:latest\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ env.REGISTRY }}/${{ github.repository }}-frontend:latest\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Required Configuration:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**GitHub Secrets:**" >> $GITHUB_STEP_SUMMARY
+          echo "- \`DATABASE_URL\`: PostgreSQL connection string for migrations" >> $GITHUB_STEP_SUMMARY
+          echo "- \`RENDER_BACKEND_DEPLOY_HOOK\`: Webhook URL to trigger backend deploy" >> $GITHUB_STEP_SUMMARY
+          echo "- \`RENDER_FRONTEND_DEPLOY_HOOK\`: Webhook URL to trigger frontend deploy" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**GitHub Variables:**" >> $GITHUB_STEP_SUMMARY
+          echo "- \`VITE_API_URL\`: Backend URL for frontend (empty for same-origin in Docker)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Backend Environment Variables:**" >> $GITHUB_STEP_SUMMARY
+          echo "- \`LLM_PROVIDER\`: LLM provider (ollama/openai/anthropic/gemini, default: ollama)" >> $GITHUB_STEP_SUMMARY
+          echo "- \`EMBEDDING_PROVIDER\`: Embedding provider (ollama/openai, default: ollama)" >> $GITHUB_STEP_SUMMARY
+          echo "- \`OLLAMA_BASE_URL\`: Ollama API endpoint (default: http://localhost:11434)" >> $GITHUB_STEP_SUMMARY
+          echo "- \`LLM_MODEL\`: LLM model name (default: gemma3:4b)" >> $GITHUB_STEP_SUMMARY
+          echo "- \`EMBEDDING_MODEL\`: Embedding model name (default: nomic-embed-text)" >> $GITHUB_STEP_SUMMARY
+          echo "- \`OPENAI_API_KEY\`: OpenAI API key (required if using openai provider)" >> $GITHUB_STEP_SUMMARY
+          echo "- \`ANTHROPIC_API_KEY\`: Anthropic API key (required if using anthropic provider)" >> $GITHUB_STEP_SUMMARY
+          echo "- \`GEMINI_API_KEY\`: Gemini API key (required if using gemini provider)" >> $GITHUB_STEP_SUMMARY
+          echo "- \`DATABASE_URL\`: PostgreSQL connection string" >> $GITHUB_STEP_SUMMARY
+          echo "- \`CHROMA_DIR\`: ChromaDB persistence directory" >> $GITHUB_STEP_SUMMARY
+          echo "- \`DOCS_DIR\`: Documents directory for RAG indexing" >> $GITHUB_STEP_SUMMARY
